@@ -1,0 +1,37 @@
+name: dev_server_setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      repo_name: ${{ github.event.repository.name }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Checking of environment already exist
+      run: | 
+        condition_set=$([ -d "/data/pranay/miniconda/envs/${{env.repo_name}}-env" ] && echo "directory exist" || echo "directory doesnt exist")
+        echo $condition_set
+        compare_string="directory doesnt exist"
+        if [ "$condition_set" = "$compare_string" ]; then
+          echo "${{env.repo_name}}-env doesnt exist , creating new environment "
+          source /data/pranay/miniconda/etc/profile.d/conda.sh && conda create --name ${{env.repo_name}}-env --clone base
+          echo "environment created with name ${{env.repo_name}}-env"
+          source /data/pranay/miniconda/etc/profile.d/conda.sh && conda activate ${{env.repo_name}}-env
+          echo "environment activated ,installing requirements using requirement.txt"
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          # mkdir /data/pranay/${{env.repo_name}}_env/
+        else
+          # git diff HEAD requirement.txt -no-ext-diff --unified=0 --exit-code -a --no-prefix | egrep "^\+"
+          echo "${{env.repo_name}}-env exist"
+        fi
+    - name: Cloning current repo
+      run: |
+        cp -r /data/pranay/github_actions/_work/${{env.repo_name}} /data/pranay/repos/
+    - name: Click here to get your development server details
+      run: |
+        echo "Conda name for dolphine scheduler is : ${{env.repo_name}}-env"
+        echo "Your repo is stored on following path : /data/pranay/repos/${{env.repo_name}}"
