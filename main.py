@@ -14,18 +14,19 @@ import streamlit as st
 import snowflake.connector
 import pandas as pd
 from snowflake.connector.pandas_tools import write_pandas
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from src.data.update_master_table_page import update_master_table_page
 from maricovault.MaricoDB import MaricoSnowflake
+import _thread
 
 def log_file_upload(conn, file_name, status, error_message=None):
     try:
         if error_message:
             query = "INSERT INTO FILE_UPLOAD_LOG (FILE_NAME, STATUS, ERROR_MESSAGE) VALUES (%s, %s, %s)"
-            conn.execute(query, (file_name, status, error_message))
+            conn.cursor().execute(query, (file_name, status, error_message))
         else:
             query = "INSERT INTO FILE_UPLOAD_LOG (FILE_NAME, STATUS) VALUES (%s, %s)"
-            conn.execute(query, (file_name, status))
+            conn.cursor().execute(query, (file_name, status))
         conn.commit()
     except Exception as e:
         st.error(f"Error logging file upload: {str(e)}")
@@ -34,7 +35,7 @@ def log_file_upload(conn, file_name, status, error_message=None):
 def get_databases(conn):
     try:
         query = "SHOW DATABASES"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         databases = [row[1] for row in result.fetchall()]
         return databases
     except Exception as e:
@@ -45,7 +46,7 @@ def get_databases(conn):
 def get_schemas(conn, database):
     try:
         query = f"SHOW SCHEMAS IN {database}"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         schemas = [row[1] for row in result.fetchall()]
         return schemas
     except Exception as e:
@@ -55,10 +56,10 @@ def get_schemas(conn, database):
 # Function to get list of tables from Snowflake based on selected database and schema
 def get_tables(conn, database, schema):
     try:
-        conn.execute(f"USE DATABASE {database}")
-        conn.execute(f"USE SCHEMA {schema}")
+        conn.cursor().execute(f"USE DATABASE {database}")
+        conn.cursor().execute(f"USE SCHEMA {schema}")
         query = "SHOW TABLES"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         tables = [row[1] for row in result.fetchall()]
         return tables
     except Exception as e:
@@ -69,7 +70,7 @@ def get_tables(conn, database, schema):
 def get_primary_keys(conn, table_name):
     try:
         query = "SELECT PRIMARY_KEY FROM DATA_UPLOAD_MASTER_TABLE WHERE TABLE_NAME = %s"
-        result = conn.execute(query, (table_name,))
+        result = conn.cursor().execute(query, (table_name,))
         result_set = result.fetchone()
         if result_set:
             return result_set[0].split(', ')
@@ -83,17 +84,17 @@ def get_primary_keys(conn, table_name):
 def update_master_table(conn, table_name, primary_keys):
     try:
         query_select = "SELECT * FROM DATA_UPLOAD_MASTER_TABLE WHERE TABLE_NAME = %s"
-        result = conn.execute(query_select, (table_name,))
+        result = conn.cursor().execute(query_select, (table_name,))
         existing_row = result.fetchone()
         
         if existing_row:
             query_update = "UPDATE DATA_UPLOAD_MASTER_TABLE SET PRIMARY_KEY = %s WHERE TABLE_NAME = %s"
             combined_primary_keys = ', '.join(primary_keys)
-            conn.execute(query_update, (combined_primary_keys, table_name))
+            conn.cursor().execute(query_update, (combined_primary_keys, table_name))
         else:
             query_insert = "INSERT INTO DATA_UPLOAD_MASTER_TABLE (TABLE_NAME, PRIMARY_KEY) VALUES (%s, %s)"
             combined_primary_keys = ', '.join(primary_keys)
-            conn.execute(query_insert, (table_name, combined_primary_keys))
+            conn.cursor().execute(query_insert, (table_name, combined_primary_keys))
             
         conn.commit()
         return True
@@ -105,7 +106,7 @@ def update_master_table(conn, table_name, primary_keys):
 def get_master_table_values(conn):
     try:
         query = "SELECT * FROM DATA_UPLOAD_MASTER_TABLE"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         rows = result.fetchall()
         return rows
     except Exception as e:
@@ -118,7 +119,7 @@ def delete_matching_rows_by_primary_keys(conn, table_name, primary_keys, file_co
         for _, row in file_contents.iterrows():
             where_clause = ' AND '.join([f"{key} = '{row[key]}'" for key in primary_keys])
             delete_query = f"DELETE FROM {table_name} WHERE {where_clause}"
-            conn.execute(delete_query)
+            conn.cursor().execute(delete_query)
         conn.commit()
         return True
     except Exception as e:
@@ -156,7 +157,7 @@ def insert_data_into_temp_table(conn, file_contents, table_name):
 def fetch_data_from_target_table(conn, table_name):
     try:
         query = f"SELECT * FROM {table_name}"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         data = result.fetchall()
         columns = [desc[0] for desc in result.description]
         return pd.DataFrame(data, columns=columns)
@@ -168,7 +169,7 @@ def fetch_data_from_target_table(conn, table_name):
 def fetch_last_10_logs(conn):
     try:
         query = "SELECT * FROM FILE_UPLOAD_LOG ORDER BY UPLOAD_TIME DESC LIMIT 10"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         log_data = result.fetchall()
         if not log_data:
             return None
@@ -183,13 +184,23 @@ def check_columns_match(conn, table_name, uploaded_file):
     try:
         file_columns = pd.read_excel(uploaded_file, nrows=1).columns.tolist()
         query = f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_name}'"
-        result = conn.execute(query)
+        result = conn.cursor().execute(query)
         table_columns = [row[0].upper() for row in result.fetchall()]
         file_columns_upper = [col.upper() for col in file_columns]
         return all(col in table_columns for col in file_columns_upper)
     except Exception as e:
         st.error(f"Error checking columns: {str(e)}")
         return False
+    
+
+def get_db_credentials():
+    if "snowflake_credentials" not in st.session_state:
+        KEY_VAULT_NAME = "prod-pwd"
+        msf = MaricoSnowflake(key_vault_name=KEY_VAULT_NAME)
+        msf.get_db_credentials(db_name='dev')
+        msf.connect()
+        st.session_state.snowflake_credentials = msf
+    return st.session_state.snowflake_credentials
 
 def main():
     """
@@ -232,11 +243,15 @@ def main():
 
 
     # Connect to Snowflake
-    KEY_VAULT_NAME = "prod-pwd"
+    # KEY_VAULT_NAME = "prod-pwd"
 
-    msf = MaricoSnowflake(key_vault_name=KEY_VAULT_NAME)
-    msf.get_db_credentials(db_name='dev')
-    msf.connect()
+    # msf = MaricoSnowflake(key_vault_name=KEY_VAULT_NAME)
+    # msf.get_db_credentials(db_name='dev')
+    # msf.connect()
+
+    # Fetch the database credentials
+    msf = get_db_credentials()
+    msf.get_connection()
 
     with tab1:
         conn = msf.get_connection()
@@ -259,7 +274,7 @@ def main():
             # Get number of rows in the selected table
             
             current_rows_query = f"SELECT COUNT(*) FROM {table_name}"
-            current_rows_result = conn.execute(current_rows_query)
+            current_rows_result = conn.cursor().execute(current_rows_query)
             current_rows = current_rows_result.fetchone()[0]
             st.info(f"Current number of rows in the table: {current_rows}")
             # File uploader
@@ -332,6 +347,7 @@ def main():
                 
 
     with tab2:
+        msf = get_db_credentials()
         conn = msf.get_connection()
         if conn:
             st.subheader("Primary Key Mapping")

@@ -6,7 +6,7 @@ import pandas as pd
 def get_databases(conn):
     try:
         databases_query = "SHOW DATABASES"
-        databases_result = conn.execute(databases_query)
+        databases_result = conn.cursor().execute(databases_query)
         databases = [row[1] for row in databases_result]
         return databases
     except Exception as e:
@@ -17,7 +17,7 @@ def get_databases(conn):
 def get_schemas(conn, database):
     try:
         schemas_query = f"SHOW SCHEMAS IN {database}"
-        schemas_result = conn.execute(schemas_query)
+        schemas_result = conn.cursor().execute(schemas_query)
         schemas = [row[1] for row in schemas_result]
         return schemas
     except Exception as e:
@@ -31,9 +31,9 @@ def get_tables(conn, database, schema):
         use_schema_query = f"USE SCHEMA {schema}"
         show_tables_query = "SHOW TABLES"
         
-        conn.execute(use_database_query)
-        conn.execute(use_schema_query)
-        tables_result = conn.execute(show_tables_query)
+        conn.cursor().execute(use_database_query)
+        conn.cursor().execute(use_schema_query)
+        tables_result = conn.cursor().execute(show_tables_query)
         
         tables = [row[1] for row in tables_result]
         return tables
@@ -45,7 +45,7 @@ def get_tables(conn, database, schema):
 def get_primary_keys(conn, table_name):
     try:
         primary_keys_query = "SELECT PRIMARY_KEY FROM DATA_UPLOAD_MASTER_TABLE WHERE TABLE_NAME = %s"
-        primary_keys_result = conn.execute(primary_keys_query, (table_name,))
+        primary_keys_result = conn.cursor().execute(primary_keys_query, (table_name,))
         
         result = primary_keys_result.fetchone()
         if result:
@@ -61,17 +61,17 @@ def get_primary_keys(conn, table_name):
 def update_master_table(conn, table_name, primary_keys):
     try:
         check_table_query = "SELECT * FROM DATA_UPLOAD_MASTER_TABLE WHERE TABLE_NAME = %s"
-        check_table_result = conn.execute(check_table_query, (table_name,))
+        check_table_result = conn.cursor().execute(check_table_query, (table_name,))
         existing_row = check_table_result.fetchone()
         
         if existing_row:
             update_query = "UPDATE DATA_UPLOAD_MASTER_TABLE SET PRIMARY_KEY = %s WHERE TABLE_NAME = %s"
             combined_primary_keys = ', '.join(primary_keys)
-            conn.execute(update_query, (combined_primary_keys, table_name))
+            conn.cursor().execute(update_query, (combined_primary_keys, table_name))
         else:
             insert_query = "INSERT INTO DATA_UPLOAD_MASTER_TABLE (TABLE_NAME, PRIMARY_KEY) VALUES (%s, %s)"
             combined_primary_keys = ', '.join(primary_keys)
-            conn.execute(insert_query, (table_name, combined_primary_keys))
+            conn.cursor().execute(insert_query, (table_name, combined_primary_keys))
             
         return True
     except Exception as e:
@@ -83,7 +83,7 @@ def update_master_table(conn, table_name, primary_keys):
 def get_master_table_values(conn):
     try:
         master_table_query = "SELECT * FROM DATA_UPLOAD_MASTER_TABLE"
-        master_table_result = conn.execute(master_table_query)
+        master_table_result = conn.cursor().execute(master_table_query)
         rows = master_table_result.fetchall()
         return rows
     except Exception as e:
@@ -110,7 +110,7 @@ def update_master_table_page(conn):
 
         # Get list of columns for selected table
         describe_table_query = f"DESCRIBE TABLE {table_name}"
-        describe_table_result = conn.execute(describe_table_query)
+        describe_table_result = conn.cursor().execute(describe_table_query)
         columns = [row[0] for row in describe_table_result]
         
         # Select multiple primary keys
