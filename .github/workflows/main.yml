@@ -7,7 +7,7 @@ jobs:
     runs-on: self-hosted
 
     env:
-      SERVER_HOST: "10.126.11.21"
+      SERVER_HOST: "10.126.11.23"
       # ENTRYPOINT_SCRIPT: "main.py"
       # SERVER_PORT: "8099"
       ENTRYPOINT_COMMAND: "streamlit run main.py --server.port 8090" # If you want to run a different python application, replace the above command with: ENTRYPOINT_COMMAND: "python main.py"
