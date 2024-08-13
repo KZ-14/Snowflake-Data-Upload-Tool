@@ -1,37 +1,93 @@
-name: dev_server_setup
+name: Deployment Pipeline
 
 on:
-  workflow_dispatch:
-
+  workflow_dispatch:   # Manually trigger the workflow 
 jobs:
-  build:
+  deployment_pipeline:
     runs-on: self-hosted
+
     env:
-      repo_name: ${{ github.event.repository.name }}
+      SERVER_HOST: "10.126.11.21"
+      # ENTRYPOINT_SCRIPT: "main.py"
+      # SERVER_PORT: "8099"
+      ENTRYPOINT_COMMAND: "streamlit run app.py --server.port 8099" # If you want to run a different python application, replace the above command with: ENTRYPOINT_COMMAND: "python main.py"
+       
     steps:
-    - uses: actions/checkout@v3
-    - name: Checking of environment already exist
-      run: | 
-        condition_set=$([ -d "/data/pranay/miniconda/envs/${{env.repo_name}}-env" ] && echo "directory exist" || echo "directory doesnt exist")
-        echo $condition_set
-        compare_string="directory doesnt exist"
-        if [ "$condition_set" = "$compare_string" ]; then
-          echo "${{env.repo_name}}-env doesnt exist , creating new environment "
-          source /data/pranay/miniconda/etc/profile.d/conda.sh && conda create --name ${{env.repo_name}}-env --clone base
-          echo "environment created with name ${{env.repo_name}}-env"
-          source /data/pranay/miniconda/etc/profile.d/conda.sh && conda activate ${{env.repo_name}}-env
-          echo "environment activated ,installing requirements using requirement.txt"
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          # mkdir /data/pranay/${{env.repo_name}}_env/
-        else
-          # git diff HEAD requirement.txt -no-ext-diff --unified=0 --exit-code -a --no-prefix | egrep "^\+"
-          echo "${{env.repo_name}}-env exist"
-        fi
-    - name: Cloning current repo
-      run: |
-        cp -r /data/pranay/github_actions/_work/${{env.repo_name}} /data/pranay/repos/
-    - name: Click here to get your development server details
-      run: |
-        echo "Conda name for dolphine scheduler is : ${{env.repo_name}}-env"
-        echo "Your repo is stored on following path : /data/pranay/repos/${{env.repo_name}}"
+      - name: Print Current Repo Path
+        run: |
+         echo "Current Repo Path: $GITHUB_WORKSPACE"
+         ls -al $GITHUB_WORKSPACE
+
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Test SSH connection
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          script: |
+            whoami
+            ls -al
+
+      - name: Check if directory exists
+        id: check_repository
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          script: |
+            if [ -d ~/code/${{ github.event.repository.name }} ]; then
+              echo '::set-output name=repository_exists::true'
+            else
+              echo '::set-output name=repository_exists::false'
+              mkdir -p ~/code/${{ github.event.repository.name }}  
+            fi
+
+      
+      - name: Copy repository contents to remote server
+        run: scp -r $GITHUB_WORKSPACE/* ${{ secrets.SERVER_USERNAME }}@${{ env.SERVER_HOST }}:~/code/${{ github.event.repository.name }}/
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Check if directory exists
+        id: check_directory
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          script: |
+            if [ -d ~/envs/${{ github.event.repository.name }}-env ]; then
+              echo '::set-output name=directory_exists::true'
+              source ~/envs/${{ github.event.repository.name }}-env/bin/activate
+              pip3 install -r code/${{ github.event.repository.name }}/requirements.txt
+            else
+              echo '::set-output name=directory_exists::false'
+              python3.10 -m venv ~/envs/${{ github.event.repository.name }}-env
+              source ~/envs/${{ github.event.repository.name }}-env/bin/activate
+              pip3 install --upgrade pip
+              pip3 install -r code/${{ github.event.repository.name }}/requirements.txt
+            fi
+          
+      - name: Start Tmux session and run main.py
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          script: |
+            tmux kill-session -t ${{ github.event.repository.name }} || true
+            tmux new-session -d -s ${{ github.event.repository.name }}
+            tmux send-keys -t ${{ github.event.repository.name }} 'source envs/${{ github.event.repository.name }}-env/bin/activate' C-m
+            tmux send-keys -t ${{ github.event.repository.name }} 'cd code/${{ github.event.repository.name }}' C-m
+            tmux send-keys -t ${{ github.event.repository.name }} "${{ env.ENTRYPOINT_COMMAND }}" C-m
+
+      
+              
